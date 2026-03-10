@@ -64,7 +64,7 @@ services:
       - ETCD_SNAPSHOT_COUNT=50000
     command: etcd -advertise-client-urls=http://127.0.0.1:2479 -listen-client-urls http://0.0.0.0:2479 --data-dir /etcd
     healthcheck:
-      test: ["CMD", "etcdctl", "endpoint", "health"]
+      test: ["CMD", "etcdctl", "--endpoints=http://127.0.0.1:2479", "endpoint", "health"]
       interval: 30s
       timeout: 20s
       retries: 3
@@ -104,7 +104,7 @@ services:
       MINIO_ADDRESS: milvus-minio:9000
     ports:
       - "19530:19530"
-      - "9091:9091"
+      - "19091:9091"
     volumes:
       - milvus_data:/var/lib/milvus
     healthcheck:

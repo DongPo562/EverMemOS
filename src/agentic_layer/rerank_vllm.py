@@ -95,12 +95,21 @@ class VllmRerankService(RerankServiceInterface):
         )
 
         url = self.config.base_url
-        # Use OpenAI-compatible rerank API format with formatted texts
-        request_data = {
-            "model": self.config.model,
-            "query": queries[0] if queries else query,  # Use formatted query
-            "documents": formatted_docs,  # Use formatted documents
-        }
+        is_dashscope_rerank = "dashscope.aliyuncs.com/api/v1/services/rerank" in url
+        if is_dashscope_rerank:
+            # DashScope native rerank format.
+            request_data = {
+                "model": self.config.model,
+                "input": {"query": query, "documents": documents},
+                "parameters": {"return_documents": False, "top_n": len(documents)},
+            }
+        else:
+            # OpenAI-compatible rerank API format with formatted texts.
+            request_data = {
+                "model": self.config.model,
+                "query": queries[0] if queries else query,  # Use formatted query
+                "documents": formatted_docs,  # Use formatted documents
+            }
 
         async with self._semaphore:
             for attempt in range(self.config.max_retries):
@@ -108,6 +117,21 @@ class VllmRerankService(RerankServiceInterface):
                     async with self.session.post(url, json=request_data) as response:
                         if response.status == 200:
                             result = await response.json()
+                            if is_dashscope_rerank and "output" in result:
+                                dashscope_results = result.get("output", {}).get(
+                                    "results", []
+                                )
+                                normalized_results = []
+                                for item in dashscope_results:
+                                    normalized_results.append(
+                                        {
+                                            "index": item.get("index"),
+                                            "relevance_score": item.get(
+                                                "relevance_score", item.get("score", 0.0)
+                                            ),
+                                        }
+                                    )
+                                return {"results": normalized_results}
                             return result
                         else:
                             error_text = await response.text()
@@ -193,7 +217,7 @@ class VllmRerankService(RerankServiceInterface):
             results = result.get("results", [])
             results_sorted = sorted(results, key=lambda x: x.get("index", 0))
             for r in results_sorted:
-                all_scores.append(r.get("relevance_score", 0.0))
+                all_scores.append(r.get("relevance_score", r.get("score", 0.0)))
 
         # Convert to same format as DeepInfra
         return self._convert_response_format(all_scores, len(documents))
@@ -300,7 +324,7 @@ class VllmRerankService(RerankServiceInterface):
             score_map = {}
             for item in result["results"]:
                 index = item.get("index")
-                score = item.get("relevance_score", 0.0)
+                score = item.get("relevance_score", item.get("score", 0.0))
                 if index is not None:
                     score_map[index] = score
 

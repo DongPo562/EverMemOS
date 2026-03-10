@@ -17,6 +17,7 @@ from typing import Any, Callable, Coroutine, TypeVar, ParamSpec, Union, Optional
 from functools import wraps
 import asyncio
 import traceback
+import time
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -25,6 +26,8 @@ from core.observation.logger import get_logger
 from core.di.utils import get_bean_by_type
 from core.context.context import get_current_request
 from core.request.app_logic_provider import AppLogicProvider
+from core.tenants.request_tenant_provider import RequestTenantProvider
+from service.request_status_service import RequestStatusService
 
 logger = get_logger(__name__)
 
@@ -121,8 +124,10 @@ def timeout_to_background(
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> Union[T, JSONResponse]:
             # Get AppLogicProvider instance
             provider = get_bean_by_type(AppLogicProvider)
+            current_request = provider.get_current_request()
             request_id = provider.get_current_request_id()
             task_name = f"{func.__name__}_{request_id}"
+            start_time_ms = int(time.time() * 1000)
 
             # Check if background mode is enabled
             background_enabled = is_background_mode_enabled()
@@ -156,8 +161,27 @@ def timeout_to_background(
                     timeout,
                 )
 
+                await _update_request_status(
+                    request=current_request,
+                    request_id=request_id,
+                    status="start",
+                    http_code=202,
+                    error_message=None,
+                    start_time_ms=start_time_ms,
+                    end_time_ms=None,
+                )
+
                 # Create background task to continue execution
-                asyncio.create_task(_run_background_task(task, task_name, provider))
+                asyncio.create_task(
+                    _run_background_task(
+                        task=task,
+                        task_name=task_name,
+                        provider=provider,
+                        request=current_request,
+                        request_id=request_id,
+                        start_time_ms=start_time_ms,
+                    )
+                )
 
                 # Return 202 Accepted
                 return JSONResponse(
@@ -174,6 +198,9 @@ async def _run_background_task(
     task: asyncio.Task,
     task_name: str,
     provider: Any,  # AppLogicProvider, using Any to avoid circular import
+    request: Optional[Request],
+    request_id: str,
+    start_time_ms: int,
 ) -> None:
     """
     Background task executor
@@ -187,7 +214,19 @@ async def _run_background_task(
         await task
         logger.info("[TimeoutBackground] Background task '%s' completed", task_name)
         # Call provider's on_request_complete
-        await _call_on_request_complete(provider, http_code=200, error_message=None)
+        await _call_on_request_complete(
+            provider=provider, request=request, http_code=200, error_message=None
+        )
+        end_time_ms = int(time.time() * 1000)
+        await _update_request_status(
+            request=request,
+            request_id=request_id,
+            status="success",
+            http_code=200,
+            error_message=None,
+            start_time_ms=start_time_ms,
+            end_time_ms=end_time_ms,
+        )
     except asyncio.CancelledError:
         logger.warning(
             "[TimeoutBackground] Background task '%s' was cancelled", task_name
@@ -199,11 +238,23 @@ async def _run_background_task(
             e,
         )
         traceback.print_exc()
-        await _call_on_request_complete(provider, http_code=500, error_message=str(e))
+        await _call_on_request_complete(
+            provider=provider, request=request, http_code=500, error_message=str(e)
+        )
+        end_time_ms = int(time.time() * 1000)
+        await _update_request_status(
+            request=request,
+            request_id=request_id,
+            status="failed",
+            http_code=500,
+            error_message=str(e),
+            start_time_ms=start_time_ms,
+            end_time_ms=end_time_ms,
+        )
 
 
 async def _call_on_request_complete(
-    provider: Any, http_code: int, error_message: Optional[str]
+    provider: Any, request: Optional[Request], http_code: int, error_message: Optional[str]
 ) -> None:
     """
     Call provider's on_request_complete
@@ -211,18 +262,59 @@ async def _call_on_request_complete(
     Get request from context.
     """
     try:
-        request = provider.get_current_request()
+        effective_request = request or provider.get_current_request()
 
-        if request is None:
+        if effective_request is None:
             logger.warning(
                 "[TimeoutBackground] Unable to get request, skipping on_request_complete"
             )
             return
 
         await provider.on_request_complete(
-            request=request, http_code=http_code, error_message=error_message
+            request=effective_request, http_code=http_code, error_message=error_message
         )
     except Exception as e:
         logger.warning(
             "[TimeoutBackground] on_request_complete callback execution failed: %s", e
+        )
+
+
+async def _update_request_status(
+    request: Optional[Request],
+    request_id: str,
+    status: str,
+    http_code: int,
+    error_message: Optional[str],
+    start_time_ms: int,
+    end_time_ms: Optional[int],
+) -> None:
+    """Persist background request status into Redis for /api/v1/stats/request polling."""
+    if request is None or not request_id:
+        return
+
+    try:
+        tenant_provider = get_bean_by_type(RequestTenantProvider)
+        request_status_service = get_bean_by_type(RequestStatusService)
+        tenant_info = tenant_provider.get_tenant_info_from_request(request)
+
+        time_ms = None
+        if end_time_ms is not None:
+            time_ms = max(0, end_time_ms - start_time_ms)
+
+        await request_status_service.update_request_status(
+            tenant_info=tenant_info,
+            request_id=request_id,
+            status=status,
+            url=str(request.url.path),
+            method=request.method,
+            http_code=http_code,
+            time_ms=time_ms,
+            error_message=error_message,
+            timestamp=start_time_ms if status == "start" else end_time_ms,
+        )
+    except Exception as e:
+        logger.warning(
+            "[TimeoutBackground] Failed to update request status for %s: %s",
+            request_id,
+            e,
         )
