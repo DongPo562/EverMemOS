@@ -12,8 +12,8 @@ GDP - Clear Users Data
     python gdp-clear-users-data.py <user_id|all>
 
 【示例】
-    python gdp-clear-users-data.py liuliu03
-    python gdp-clear-users-data.py all
+    .\.venv\Scripts\python.exe gdp-clear-users-data.py liuliu03
+    .\.venv\Scripts\python.exe gdp-clear-users-data.py all
 
 【说明】
 - 传入具体用户时：删除该用户相关聊天/记忆数据，并从 `web_mvp/data/users.json` 中移除该用户
