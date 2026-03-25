@@ -217,6 +217,7 @@ evaluation/locomo_evaluation/results_ref/
 tmp/
 evaluation/locomo_evaluation/results_ref/demo/results/
 users-chat-logs/
+.runtime/
 
 # i18n translation progress
 .translation_progress.json

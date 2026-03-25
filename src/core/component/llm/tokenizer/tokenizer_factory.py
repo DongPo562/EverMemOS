@@ -5,6 +5,8 @@ Provides tokenizer caching and management functionality.
 Supports tiktoken and potentially other tokenizer providers in the future.
 """
 
+import os
+from pathlib import Path
 from typing import Dict, Any
 import tiktoken
 
@@ -21,6 +23,24 @@ DEFAULT_TIKTOKEN_ENCODINGS = [
 ]
 
 
+def get_default_tiktoken_cache_dir() -> Path:
+    """Return the project-local tiktoken cache directory."""
+    project_root = Path(__file__).resolve().parents[5]
+    return project_root / ".runtime" / "tiktoken-cache"
+
+
+def ensure_tiktoken_cache_dir() -> str:
+    """Use a project-local cache dir unless the runtime explicitly configured one."""
+    if os.getenv("TIKTOKEN_CACHE_DIR"):
+        return os.environ["TIKTOKEN_CACHE_DIR"]
+    if os.getenv("DATA_GYM_CACHE_DIR"):
+        return os.environ["DATA_GYM_CACHE_DIR"]
+
+    cache_dir = str(get_default_tiktoken_cache_dir())
+    os.environ["TIKTOKEN_CACHE_DIR"] = cache_dir
+    return cache_dir
+
+
 @component(name="tokenizer_factory", primary=True)
 class TokenizerFactory:
     """
@@ -33,7 +53,8 @@ class TokenizerFactory:
     def __init__(self):
         """Initialize tokenizer factory"""
         self._tokenizers: Dict[str, Any] = {}
-        logger.info("TokenizerFactory initialized")
+        cache_dir = ensure_tiktoken_cache_dir()
+        logger.info("TokenizerFactory initialized | tiktoken_cache_dir=%s", cache_dir)
 
     def get_tokenizer_from_tiktoken(self, encoding_name: str) -> tiktoken.Encoding:
         """
