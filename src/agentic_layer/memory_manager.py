@@ -212,6 +212,7 @@ class MemoryManager:
                 self._get_pending_messages(
                     user_id=retrieve_mem_request.user_id,
                     group_id=retrieve_mem_request.group_id,
+                    exclude_group_id=retrieve_mem_request.pending_exclude_group_id,
                 )
             )
 
@@ -263,7 +264,10 @@ class MemoryManager:
             )
 
     async def _get_pending_messages(
-        self, user_id: Optional[str] = None, group_id: Optional[str] = None
+        self,
+        user_id: Optional[str] = None,
+        group_id: Optional[str] = None,
+        exclude_group_id: Optional[str] = None,
     ) -> List[PendingMessage]:
         """
         Get pending (unconsumed) messages from MemoryRequestLogService.
@@ -273,18 +277,21 @@ class MemoryManager:
         Args:
             user_id: User ID filter (from retrieve_request)
             group_id: Group ID filter (from retrieve_request)
+            exclude_group_id: Group ID that should be excluded from pending results
 
         Returns:
             List of PendingMessage objects
         """
         try:
-            result = await self._request_log_service.get_pending_messages(
-                user_id=user_id, group_id=group_id, limit=1000
+            result = await self._request_log_service.get_cross_group_pending_messages(
+                user_id=user_id,
+                exclude_group_id=exclude_group_id or group_id,
+                limit=1000,
             )
 
             logger.debug(
                 f"Retrieved {len(result)} pending messages: "
-                f"user_id={user_id}, group_id={group_id}"
+                f"user_id={user_id}, group_id={group_id}, exclude_group_id={exclude_group_id}"
             )
             return result
         except Exception as e:

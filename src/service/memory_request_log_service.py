@@ -284,6 +284,7 @@ class MemoryRequestLogService:
         self,
         user_id: Optional[str] = MAGIC_ALL,
         group_id: Optional[str] = MAGIC_ALL,
+        exclude_group_ids: Optional[List[str]] = None,
         sync_status_list: Optional[List[int]] = None,
         limit: int = 1000,
         skip: int = 0,
@@ -330,6 +331,7 @@ class MemoryRequestLogService:
             results = await repo.find_pending_by_filters(
                 user_id=user_id,
                 group_id=group_id,
+                exclude_group_ids=exclude_group_ids,
                 sync_status_list=sync_status_list,
                 limit=limit,
                 skip=skip,
@@ -354,10 +356,55 @@ class MemoryRequestLogService:
             )
             return []
 
+    async def get_cross_group_pending_messages(
+        self,
+        user_id: Optional[str] = MAGIC_ALL,
+        exclude_group_id: Optional[str] = None,
+        limit: int = 1000,
+    ) -> List[PendingMessage]:
+        """Get cross-session pending messages for a user, excluding the current group."""
+        logs = await self.get_pending_request_logs(
+            user_id=user_id,
+            group_id=MAGIC_ALL,
+            exclude_group_ids=[exclude_group_id] if exclude_group_id else None,
+            limit=limit,
+        )
+
+        result = []
+        for log in logs:
+            if exclude_group_id and log.group_id == exclude_group_id:
+                continue
+
+            pending_msg = PendingMessage(
+                id=str(log.id),
+                request_id=log.request_id,
+                message_id=log.message_id,
+                group_id=log.group_id,
+                user_id=log.user_id,
+                sender=log.sender,
+                sender_name=log.sender_name,
+                group_name=log.group_name,
+                content=log.content,
+                refer_list=log.refer_list,
+                message_create_time=log.message_create_time,
+                created_at=to_iso_format(log.created_at),
+                updated_at=to_iso_format(log.updated_at),
+            )
+            result.append(pending_msg)
+
+        logger.debug(
+            "Converted %d pending request logs to cross-group PendingMessage: user_id=%s, exclude_group_id=%s",
+            len(result),
+            user_id,
+            exclude_group_id,
+        )
+        return result
+
     async def get_pending_messages(
         self,
         user_id: Optional[str] = MAGIC_ALL,
         group_id: Optional[str] = MAGIC_ALL,
+        exclude_group_id: Optional[str] = None,
         limit: int = 1000,
     ) -> List[PendingMessage]:
         """
@@ -374,6 +421,13 @@ class MemoryRequestLogService:
         Returns:
             List[PendingMessage]: List of pending messages
         """
+        if exclude_group_id:
+            return await self.get_cross_group_pending_messages(
+                user_id=user_id,
+                exclude_group_id=exclude_group_id,
+                limit=limit,
+            )
+
         logs = await self.get_pending_request_logs(
             user_id=user_id, group_id=group_id, limit=limit
         )

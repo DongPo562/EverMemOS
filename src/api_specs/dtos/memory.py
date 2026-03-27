@@ -614,6 +614,11 @@ class RetrieveMemRequest(BaseModel):
         description="Group ID (at least one of user_id or group_id must be provided)",
         examples=["group_456"],
     )
+    pending_exclude_group_id: Optional[str] = Field(
+        default=None,
+        description="Group ID to exclude from pending_messages results",
+        examples=["group_456"],
+    )
     memory_types: List[MemoryType] = Field(
         default_factory=list,
         description="""List of memory types to retrieve, enum values from MemoryType:

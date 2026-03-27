@@ -216,6 +216,7 @@ def convert_dict_to_retrieve_mem_request(
             group_id=data.get(
                 "group_id", MAGIC_ALL
             ),  # Group ID, use MAGIC_ALL to skip group filtering
+            pending_exclude_group_id=data.get("pending_exclude_group_id"),
             query=query or data.get("query", None),
             memory_types=memory_types,
             top_k=top_k,

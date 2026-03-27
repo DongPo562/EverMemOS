@@ -442,6 +442,7 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
         self,
         user_id: Optional[str] = MAGIC_ALL,
         group_id: Optional[str] = MAGIC_ALL,
+        exclude_group_ids: Optional[List[str]] = None,
         sync_status_list: Optional[List[int]] = None,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
@@ -505,6 +506,10 @@ class MemoryRequestLogRepository(BaseRepository[MemoryRequestLog]):
                     query["group_id"] = {"$in": [None, ""]}
                 else:
                     query["group_id"] = group_id
+            elif exclude_group_ids:
+                filtered_group_ids = [item for item in exclude_group_ids if item]
+                if filtered_group_ids:
+                    query["group_id"] = {"$nin": filtered_group_ids}
 
             # Filter by sync_status
             if sync_status_list:
