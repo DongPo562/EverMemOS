@@ -63,6 +63,19 @@ sys.modules.setdefault(
 
 from service.memory_request_log_service import MemoryRequestLogService
 
+for module_name in [
+    "common_utils.datetime_utils",
+    "core.di",
+    "core.di.utils",
+    "core.observation.logger",
+    "core.context.context",
+    "core.oxm.constants",
+    "api_specs.dtos",
+    "infra_layer.adapters.out.persistence.document.request.memory_request_log",
+    "infra_layer.adapters.out.persistence.repository.memory_request_log_repository",
+]:
+    sys.modules.pop(module_name, None)
+
 
 @pytest.mark.anyio
 async def test_get_cross_group_pending_messages_excludes_current_group_id_and_keeps_message_id():
