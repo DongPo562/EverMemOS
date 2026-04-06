@@ -43,6 +43,8 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 EVERMEMOS_SRC_DIR = SCRIPT_DIR / "src"
 USERS_FILE_PATH = PROJECT_ROOT / "web_mvp" / "data" / "users.json"
+CUSTOMER_PROFILES_PATH = PROJECT_ROOT / "web_mvp" / "data" / "customer_profiles.json"
+CUSTOMER_PROFILES_PENDING_PATH = PROJECT_ROOT / "web_mvp" / "data" / "customer_profile_pending_updates.json"
 DEFAULT_REDIS_PORT = 6379
 FALLBACK_REDIS_PORT = 16379
 MONGO_GROUP_COLLECTIONS = [
@@ -214,6 +216,35 @@ def save_user_state(payload: dict[str, Any], file_path: Path = USERS_FILE_PATH) 
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def clear_customer_profiles_all() -> None:
+    """all 模式：清空 customer_profiles 和 pending_updates。"""
+    for path in (CUSTOMER_PROFILES_PATH, CUSTOMER_PROFILES_PENDING_PATH):
+        payload = {"profiles": {}} if "pending" not in path.name else {"pending_updates": {}}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+
+def clear_customer_profiles_for_users(target_user_ids: list[str]) -> None:
+    """单用户模式：删除指定用户在 customer_profiles 和 pending_updates 中的条目。"""
+    for path, top_key in (
+        (CUSTOMER_PROFILES_PATH, "profiles"),
+        (CUSTOMER_PROFILES_PENDING_PATH, "pending_updates"),
+    ):
+        if not path.exists():
+            continue
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        bucket = payload.setdefault(top_key, {})
+        for uid in target_user_ids:
+            bucket.pop(uid, None)
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
 
 def ensure_runtime_paths() -> None:
@@ -477,6 +508,7 @@ async def clear_all_mode(user_state: dict[str, Any]) -> dict[str, Any]:
         None,
     )
     cleanup_result = await clear_all_memories(verbose=True, rebuild_es=False, drop_milvus=False)
+    clear_customer_profiles_all()
     rewritten_state = build_default_user_state(existing_default_user=current_default_user)
     save_user_state(rewritten_state)
 
@@ -514,6 +546,7 @@ async def clear_specific_users_mode(
     elasticsearch_summary = await clear_elasticsearch_for_ids(doc_ids_by_type)
     milvus_summary = clear_milvus_for_ids(doc_ids_by_type)
     redis_summary = await clear_redis_for_users(target_user_ids, target_group_ids)
+    clear_customer_profiles_for_users(target_user_ids)
 
     rewritten_state = ensure_default_user_in_state(
         remove_users_from_state(user_state, target_user_ids, default_user_id=DEFAULT_USER_ID)
